@@ -126,12 +126,15 @@ class Game2048 {
 		const minSwipeDistance = 30; // Minimum distance for a swipe
 
 		const gameContainer = document.querySelector('.game-container');
+		const swipeArea = document.querySelector('.swipe-area');
+		const touchTargets = [gameContainer, swipeArea].filter(el => el !== null);
 
 		// Prevent pull-to-refresh on mobile when touching game container
 		let isTouchingGameContainer = false;
 		let touchStartYGlobal = null;
 
-		gameContainer.addEventListener('touchstart', (e) => {
+		// Helper function to handle touch start
+		const handleTouchStart = (e) => {
 			isTouchingGameContainer = true;
 			touchStartYGlobal = e.touches[0].clientY;
 			
@@ -139,32 +142,10 @@ class Game2048 {
 			const firstTouch = e.touches[0];
 			touchStartX = firstTouch.clientX;
 			touchStartY = firstTouch.clientY;
-		}, { passive: true });
+		};
 
-		document.addEventListener('touchmove', (e) => {
-			// Prevent pull-to-refresh when touching game container and scrolling down from top
-			if (isTouchingGameContainer && touchStartYGlobal !== null) {
-				const currentY = e.touches[0].clientY;
-				const deltaY = currentY - touchStartYGlobal;
-				
-				// If at top of page and scrolling down, prevent pull-to-refresh
-				if (window.scrollY === 0 && deltaY > 0) {
-					e.preventDefault();
-				}
-			}
-		}, { passive: false });
-
-		gameContainer.addEventListener('touchend', () => {
-			isTouchingGameContainer = false;
-			touchStartYGlobal = null;
-		}, { passive: true });
-
-		gameContainer.addEventListener('touchcancel', () => {
-			isTouchingGameContainer = false;
-			touchStartYGlobal = null;
-		}, { passive: true });
-
-		gameContainer.addEventListener('touchend', async (e) => {
+		// Helper function to handle touch end
+		const handleTouchEnd = async (e) => {
 			if (this.gameOver || this.animating || touchStartX === null || touchStartY === null) return;
 
 			const touchEndX = e.changedTouches[0].clientX;
@@ -201,6 +182,33 @@ class Game2048 {
 
 			touchStartX = null;
 			touchStartY = null;
+		};
+
+		// Helper function to handle touch end (for pull-to-refresh prevention)
+		const handleTouchEndCleanup = () => {
+			isTouchingGameContainer = false;
+			touchStartYGlobal = null;
+		};
+
+		// Add event listeners to all touch targets
+		touchTargets.forEach(target => {
+			target.addEventListener('touchstart', handleTouchStart, { passive: true });
+			target.addEventListener('touchend', handleTouchEnd, { passive: false });
+			target.addEventListener('touchend', handleTouchEndCleanup, { passive: true });
+			target.addEventListener('touchcancel', handleTouchEndCleanup, { passive: true });
+		});
+
+		document.addEventListener('touchmove', (e) => {
+			// Prevent pull-to-refresh when touching game container and scrolling down from top
+			if (isTouchingGameContainer && touchStartYGlobal !== null) {
+				const currentY = e.touches[0].clientY;
+				const deltaY = currentY - touchStartYGlobal;
+				
+				// If at top of page and scrolling down, prevent pull-to-refresh
+				if (window.scrollY === 0 && deltaY > 0) {
+					e.preventDefault();
+				}
+			}
 		}, { passive: false });
 	}
 
@@ -970,9 +978,9 @@ function showUpdateNotification() {
 		color: white;
 		padding: 16px 24px;
 		border-radius: 12px;
-		font-size: 14px;
+		font-size: 20px;
 		z-index: 10000;
-		font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+		font-family: 'Arial', 'Helvetica', 'Roboto', 'Segoe UI', 'Montserrat', sans-serif;
 		box-shadow: 0 4px 12px rgba(0,0,0,0.4);
 		display: flex;
 		align-items: center;
@@ -983,7 +991,7 @@ function showUpdateNotification() {
 	notification.innerHTML = `
 		<div style="flex: 1;">
 			<strong>🔄 新版本可用</strong><br>
-			<span style="font-size: 12px; opacity: 0.9;">点击刷新以获取最新版本</span>
+			<span style="font-size: 16px; opacity: 0.9;">点击刷新以获取最新版本</span>
 		</div>
 		<button id="update-refresh-btn" style="
 			background: white;
@@ -993,7 +1001,7 @@ function showUpdateNotification() {
 			border-radius: 6px;
 			font-weight: bold;
 			cursor: pointer;
-			font-size: 13px;
+			font-size: 18px;
 		">刷新</button>
 	`;
 	
