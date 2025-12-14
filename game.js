@@ -14,6 +14,7 @@ class Game2048 {
 		this.history = []; // Store game states for undo (max 32 steps)
 		this.maxHistorySteps = 32;
 		this.nextFixedValue = null; // Fixed value for next random tile (4 or 8)
+		this.fixed8DisplayValue = 8; // Current display value for button 8 (easter egg)
 
 		this.gridContainer = document.getElementById('grid-container');
 		this.tileContainer = document.getElementById('tile-container');
@@ -103,7 +104,24 @@ class Game2048 {
 		});
 
 		this.fixed8Btn.addEventListener('click', () => {
-			this.setNextFixedValue(8);
+			// Easter egg: if button 8 is already active, double the value
+			const isActive = this.fixed8Btn.classList.contains('active');
+			if (isActive && this.nextFixedValue !== null && this.nextFixedValue >= 8) {
+				// Double the display value: 8 -> 16 -> 32 -> ... -> 2048 -> back to 8
+				this.fixed8DisplayValue *= 2;
+				if (this.fixed8DisplayValue > 2048) {
+					this.fixed8DisplayValue = 8;
+				}
+				// Update the fixed value to the new display value
+				this.setNextFixedValue(this.fixed8DisplayValue);
+				// Update button text
+				this.fixed8Btn.textContent = this.fixed8DisplayValue;
+			} else {
+				// First click: activate button 8 with value 8
+				this.fixed8DisplayValue = 8;
+				this.setNextFixedValue(8);
+				this.fixed8Btn.textContent = 8;
+			}
 		});
 
 		// Undo button
@@ -268,6 +286,7 @@ class Game2048 {
 		this.won = false;
 		// Don't clear history - keep it so user can undo to previous game
 		this.nextFixedValue = null; // Reset fixed value
+		this.fixed8DisplayValue = 8; // Reset button 8 display value
 		this.updateFixedValueButtons(); // Update button states
 
 		// Start new game
@@ -391,14 +410,32 @@ class Game2048 {
 		}
 		
 		if (this.fixed8Btn) {
-			const shouldBeActive = this.nextFixedValue === 8;
+			// Button 8 is active if nextFixedValue matches any power of 2 from 8 to 2048
+			const shouldBeActive = this.nextFixedValue !== null && 
+				this.nextFixedValue >= 8 && 
+				this.nextFixedValue <= 2048 && 
+				(this.nextFixedValue & (this.nextFixedValue - 1)) === 0; // Check if power of 2
 			const isActive = this.fixed8Btn.classList.contains('active');
 			
 			// Only update if state changed
 			if (shouldBeActive && !isActive) {
 				this.fixed8Btn.classList.add('active');
+				// Update button text to show current value
+				if (this.nextFixedValue !== null) {
+					this.fixed8DisplayValue = this.nextFixedValue;
+					this.fixed8Btn.textContent = this.nextFixedValue;
+				}
 			} else if (!shouldBeActive && isActive) {
 				this.fixed8Btn.classList.remove('active');
+				// Reset button text to 8 when deactivated
+				this.fixed8DisplayValue = 8;
+				this.fixed8Btn.textContent = 8;
+			} else if (shouldBeActive && isActive) {
+				// Update button text if value changed while active
+				if (this.nextFixedValue !== null && this.nextFixedValue !== this.fixed8DisplayValue) {
+					this.fixed8DisplayValue = this.nextFixedValue;
+					this.fixed8Btn.textContent = this.nextFixedValue;
+				}
 			}
 		}
 	}
@@ -420,7 +457,13 @@ class Game2048 {
 			let value;
 			if (this.nextFixedValue !== null) {
 				value = this.nextFixedValue;
+				// Check if this was from button 8 easter egg (value >= 8 and power of 2)
+				const wasButton8 = value >= 8 && value <= 2048 && (value & (value - 1)) === 0;
 				this.nextFixedValue = null; // Reset after use
+				// Reset button 8 display value if it was used
+				if (wasButton8) {
+					this.fixed8DisplayValue = 8;
+				}
 				// Use requestAnimationFrame to update button state after DOM updates
 				// This prevents visual flickering by batching the update
 				requestAnimationFrame(() => {
