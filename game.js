@@ -100,22 +100,34 @@ class Game2048 {
 
 		// Fixed value buttons (4 and 8)
 		this.fixed4Btn.addEventListener('click', () => {
-			this.setNextFixedValue(4);
+			// Toggle: if already active, deactivate; otherwise activate with value 4
+			if (this.nextFixedValue === 4) {
+				// Cancel selection
+				this.setNextFixedValue(null);
+			} else {
+				// Activate with value 4
+				this.setNextFixedValue(4);
+			}
 		});
 
 		this.fixed8Btn.addEventListener('click', () => {
 			// Easter egg: if button 8 is already active, double the value
 			const isActive = this.fixed8Btn.classList.contains('active');
 			if (isActive && this.nextFixedValue !== null && this.nextFixedValue >= 8) {
-				// Double the display value: 8 -> 16 -> 32 -> ... -> 2048 -> back to 8
-				this.fixed8DisplayValue *= 2;
-				if (this.fixed8DisplayValue > 2048) {
+				// If value is 2048, cancel selection; otherwise double the value
+				if (this.fixed8DisplayValue === 2048) {
+					// Cancel selection
+					this.setNextFixedValue(null);
 					this.fixed8DisplayValue = 8;
+					this.fixed8Btn.textContent = 8;
+				} else {
+					// Double the display value: 8 -> 16 -> 32 -> ... -> 2048
+					this.fixed8DisplayValue *= 2;
+					// Update the fixed value to the new display value
+					this.setNextFixedValue(this.fixed8DisplayValue);
+					// Update button text
+					this.fixed8Btn.textContent = this.fixed8DisplayValue;
 				}
-				// Update the fixed value to the new display value
-				this.setNextFixedValue(this.fixed8DisplayValue);
-				// Update button text
-				this.fixed8Btn.textContent = this.fixed8DisplayValue;
 			} else {
 				// First click: activate button 8 with value 8
 				this.fixed8DisplayValue = 8;
@@ -386,7 +398,7 @@ class Game2048 {
 	}
 
 	setNextFixedValue(value) {
-		// Set the fixed value for the next random tile
+		// Set the fixed value for the next random tile (null to cancel selection)
 		this.nextFixedValue = value;
 		// Update button states immediately when user clicks (not during animation)
 		// Use requestAnimationFrame to ensure smooth update
