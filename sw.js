@@ -1,5 +1,5 @@
 // Service Worker for 2048 Game PWA
-const CACHE_NAME = '2048-game-v8';
+const CACHE_NAME = '2048-game-v12';
 
 // Get the base path from the service worker's location
 let basePath = self.location.pathname.replace('/sw.js', '');

@@ -120,6 +120,43 @@ class Game2048 {
 
 	}
 
+	// Helper function to parse gap value from computed style (iOS Safari compatible)
+	parseGap() {
+		const computedStyle = window.getComputedStyle(this.gridContainer);
+		const gapStyle = computedStyle.gap;
+		
+		// Debug on iOS
+		if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+			console.log('iOS Debug - gapStyle:', gapStyle, 'type:', typeof gapStyle);
+		}
+		
+		if (!gapStyle) return 15; // default
+		
+		// Handle "15px" format
+		const gapMatch = gapStyle.match(/(\d+(?:\.\d+)?)px/);
+		if (gapMatch) {
+			const gapValue = parseFloat(gapMatch[1]);
+			if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+				console.log('iOS Debug - Parsed gap from match:', gapValue);
+			}
+			return gapValue;
+		}
+		
+		// Handle numeric value
+		const numGap = parseFloat(gapStyle);
+		if (!isNaN(numGap)) {
+			if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+				console.log('iOS Debug - Parsed gap from parseFloat:', numGap);
+			}
+			return numGap;
+		}
+		
+		if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+			console.log('iOS Debug - Using fallback gap: 15');
+		}
+		return 15; // fallback
+	}
+
 	setupTouchControls() {
 		let touchStartX = null;
 		let touchStartY = null;
@@ -631,12 +668,16 @@ class Game2048 {
 	}
 
 	renderTilesForMovement(mergeInfo) {
-		// Calculate cell size
+		// Calculate cell size - use offsetWidth for consistency
 		const containerWidth = this.gridContainer.offsetWidth;
-		// Get gap from computed style (supports responsive gap)
-		const gapStyle = window.getComputedStyle(this.gridContainer).gap;
-		const gap = gapStyle ? parseInt(gapStyle) || 15 : 15;
+		// Get gap from computed style (supports responsive gap, iOS Safari compatible)
+		const gap = this.parseGap();
 		const cellSize = (containerWidth - (this.gridSize - 1) * gap) / this.gridSize;
+		
+		// Debug: log gap and cellSize on iOS (can be removed later)
+		if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+			console.log('iOS Debug - Gap:', gap, 'CellSize:', cellSize, 'ContainerWidth:', containerWidth);
+		}
 
 		// Render all tiles except hidden merged tiles
 		this.tiles.forEach((tile, id) => {
@@ -678,12 +719,16 @@ class Game2048 {
 	}
 
 	renderTiles() {
-		// Calculate cell size
+		// Calculate cell size - use offsetWidth for consistency
 		const containerWidth = this.gridContainer.offsetWidth;
-		// Get gap from computed style (supports responsive gap)
-		const gapStyle = window.getComputedStyle(this.gridContainer).gap;
-		const gap = gapStyle ? parseInt(gapStyle) || 15 : 15;
+		// Get gap from computed style (supports responsive gap, iOS Safari compatible)
+		const gap = this.parseGap();
 		const cellSize = (containerWidth - (this.gridSize - 1) * gap) / this.gridSize;
+		
+		// Debug: log gap and cellSize on iOS (can be removed later)
+		if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+			console.log('iOS Debug - Gap:', gap, 'CellSize:', cellSize, 'ContainerWidth:', containerWidth);
+		}
 
 		// Update existing tiles or create new ones
 		this.tiles.forEach((tile, id) => {

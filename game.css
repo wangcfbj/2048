@@ -12,7 +12,8 @@ body {
 	display: flex;
 	justify-content: center;
 	align-items: flex-start;
-	padding: 10px 20px 20px 20px;
+	padding: 20px;
+	padding-top: max(20px, env(safe-area-inset-top));
 	/* Prevent pull-to-refresh on mobile */
 	overscroll-behavior-y: contain;
 	overflow-x: hidden;
@@ -23,14 +24,18 @@ body {
 .container {
 	max-width: 500px;
 	width: 100%;
+	max-width: min(500px, calc(100vw - 40px));
 	background: rgba(255, 255, 255, 0.95);
 	border-radius: 20px;
 	padding: 15px 30px 30px 30px;
 	box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
 	display: flex;
 	flex-direction: column;
-	min-height: calc(100vh - 20px);
-	min-height: calc(calc(var(--vh, 1vh) * 100) - 20px);
+	min-height: calc(100vh - 40px);
+	min-height: calc(calc(var(--vh, 1vh) * 100) - 40px);
+	box-sizing: border-box;
+	/* Ensure flex children can shrink */
+	min-width: 0;
 }
 
 .header {
@@ -181,10 +186,16 @@ body {
 	border-radius: 12px;
 	padding: 15px;
 	margin-bottom: 0;
-	/* Make container height match grid height */
+	/* Make container content area square */
 	width: 100%;
-	aspect-ratio: 1;
+	max-width: 100%;
 	box-sizing: border-box;
+	/* Ensure it doesn't exceed parent container */
+	min-width: 0;
+	/* Use padding to create square content area */
+	aspect-ratio: 1;
+	/* Ensure content fits within padding */
+	overflow: hidden;
 }
 
 .swipe-area {
@@ -203,11 +214,16 @@ body {
 	display: grid;
 	grid-template-columns: repeat(4, 1fr);
 	gap: 15px;
-	position: relative;
+	position: absolute;
+	top: 15px;
+	left: 15px;
+	right: 15px;
+	bottom: 15px;
 	z-index: 1;
-	width: 100%;
-	height: 100%;
-	aspect-ratio: 1;
+	box-sizing: border-box;
+	/* Ensure grid fits exactly within padding */
+	width: calc(100% - 30px);
+	height: calc(100% - 30px);
 }
 
 .grid-cell {
@@ -388,18 +404,24 @@ body {
 /* Responsive Design */
 @media (max-width: 768px) {
 	body {
-		padding: 5px;
+		padding: 0;
+		padding-top: max(0px, env(safe-area-inset-top));
+		padding-bottom: max(0px, env(safe-area-inset-bottom));
 	}
 
 	.container {
 		padding: 10px;
 		max-width: 100%;
+		width: 100%;
 		border-radius: 0;
 		box-shadow: none;
 		display: flex;
 		flex-direction: column;
-		min-height: calc(100vh - 10px);
-		min-height: calc(calc(var(--vh, 1vh) * 100) - 10px);
+		min-height: 100vh;
+		min-height: calc(var(--vh, 1vh) * 100);
+		box-sizing: border-box;
+		/* Ensure flex children can shrink */
+		min-width: 0;
 	}
 
 	.header {
@@ -481,10 +503,15 @@ body {
 		padding: 10px;
 		position: relative;
 		width: 100%;
-		/* Make container height match grid height */
+		max-width: 100%;
+		/* Make container content area square */
 		aspect-ratio: 1;
 		box-sizing: border-box;
 		margin-bottom: 0;
+		/* Ensure it doesn't exceed parent container */
+		min-width: 0;
+		/* Ensure content fits within padding */
+		overflow: hidden;
 	}
 
 	.swipe-area {
@@ -497,11 +524,16 @@ body {
 
 	.grid-container {
 		gap: 10px;
-		width: 100%;
-		height: 100%;
-		aspect-ratio: 1;
-		position: relative;
+		position: absolute;
+		top: 10px;
+		left: 10px;
+		right: 10px;
+		bottom: 10px;
 		z-index: 1;
+		box-sizing: border-box;
+		/* Ensure grid fits exactly within padding */
+		width: calc(100% - 20px);
+		height: calc(100% - 20px);
 	}
 
 	.tile-container {
