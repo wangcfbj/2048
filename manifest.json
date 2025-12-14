@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "2048 Game v2",
+  "version": "1.0.0",
+  "description": "Play the classic 2048 game with progress saving and history tracking",
+  "action": {
+    "default_title": "Play 2048 v2",
+    "default_icon": {
+      "128": "img/icon.png"
+    }
+  },
+  "icons": {
+    "128": "img/icon.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "storage"
+  ]
+}
