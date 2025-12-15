@@ -81,6 +81,12 @@ body {
 	margin-top: 5px;
 }
 
+.score-value.cheating-score {
+	text-decoration: underline;
+	text-decoration-thickness: 3px;
+	text-underline-offset: 4px;
+}
+
 .game-intro {
 	margin-bottom: 20px;
 	display: flex;
@@ -230,6 +236,14 @@ body {
 	aspect-ratio: 1;
 	background: rgba(238, 228, 218, 0.35);
 	border-radius: 8px;
+	transition: all 0.2s ease;
+	cursor: pointer;
+}
+
+.grid-cell.selected {
+	background: rgba(76, 175, 80, 0.4);
+	border: 3px solid rgba(76, 175, 80, 0.8);
+	box-shadow: 0 0 10px rgba(76, 175, 80, 0.5);
 }
 
 .tile-container {
@@ -239,6 +253,11 @@ body {
 	right: 15px;
 	bottom: 15px;
 	z-index: 2;
+	pointer-events: none; /* Allow clicks to pass through to grid cells */
+}
+
+.tile-container .tile {
+	pointer-events: auto; /* But tiles themselves should be clickable if needed */
 }
 
 .tile {
@@ -543,6 +562,11 @@ body {
 		right: 10px;
 		bottom: 10px;
 		z-index: 2;
+		pointer-events: none; /* Allow clicks to pass through to grid cells */
+	}
+
+	.tile-container .tile {
+		pointer-events: auto; /* But tiles themselves should be clickable if needed */
 	}
 
 
