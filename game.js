@@ -17,6 +17,9 @@ class Game2048 {
 		this.fixed8DisplayValue = 8; // Current display value for button 8 (easter egg)
 		this.lastAutoSaveTime = 0; // Timestamp of last periodic auto-save
 		this.autoSaveInterval = 30000; // Normal play: save at most once every 30s
+		this.selectedCell = null; // Selected cell position {row, col} for next tile placement
+		this.lastClickedCell = null; // Track last clicked cell for second click detection
+		this.isCheating = false; // Cheating flag: true if used fixed value >= 8 or selected cell position
 
 		this.gridContainer = document.getElementById('grid-container');
 		this.tileContainer = document.getElementById('tile-container');
@@ -49,6 +52,16 @@ class Game2048 {
 		for (let i = 0; i < this.gridSize * this.gridSize; i++) {
 			const cell = document.createElement('div');
 			cell.className = 'grid-cell';
+			const row = Math.floor(i / this.gridSize);
+			const col = i % this.gridSize;
+			cell.dataset.row = row;
+			cell.dataset.col = col;
+
+			// Add click event listener for cell selection
+			cell.addEventListener('click', (e) => {
+				this.handleCellClick(row, col);
+			});
+
 			this.gridContainer.appendChild(cell);
 		}
 
@@ -158,14 +171,14 @@ class Game2048 {
 	parseGap() {
 		const computedStyle = window.getComputedStyle(this.gridContainer);
 		const gapStyle = computedStyle.gap;
-		
+
 		// Debug on iOS
 		if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
 			console.log('iOS Debug - gapStyle:', gapStyle, 'type:', typeof gapStyle);
 		}
-		
+
 		if (!gapStyle) return 15; // default
-		
+
 		// Handle "15px" format
 		const gapMatch = gapStyle.match(/(\d+(?:\.\d+)?)px/);
 		if (gapMatch) {
@@ -175,7 +188,7 @@ class Game2048 {
 			}
 			return gapValue;
 		}
-		
+
 		// Handle numeric value
 		const numGap = parseFloat(gapStyle);
 		if (!isNaN(numGap)) {
@@ -184,7 +197,7 @@ class Game2048 {
 			}
 			return numGap;
 		}
-		
+
 		if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
 			console.log('iOS Debug - Using fallback gap: 15');
 		}
@@ -208,7 +221,7 @@ class Game2048 {
 		const handleTouchStart = (e) => {
 			isTouchingGameContainer = true;
 			touchStartYGlobal = e.touches[0].clientY;
-			
+
 			if (this.gameOver || this.animating) return;
 			const firstTouch = e.touches[0];
 			touchStartX = firstTouch.clientX;
@@ -274,7 +287,7 @@ class Game2048 {
 			if (isTouchingGameContainer && touchStartYGlobal !== null) {
 				const currentY = e.touches[0].clientY;
 				const deltaY = currentY - touchStartYGlobal;
-				
+
 				// If at top of page and scrolling down, prevent pull-to-refresh
 				if (window.scrollY === 0 && deltaY > 0) {
 					e.preventDefault();
@@ -303,7 +316,11 @@ class Game2048 {
 		// Don't clear history - keep it so user can undo to previous game
 		this.nextFixedValue = null; // Reset fixed value
 		this.fixed8DisplayValue = 8; // Reset button 8 display value
+		this.selectedCell = null; // Clear selected cell
+		this.lastClickedCell = null; // Clear last clicked cell
+		this.isCheating = false; // Reset cheating flag for new game
 		this.updateFixedValueButtons(); // Update button states
+		this.updateSelectedCellDisplay(); // Clear selection display
 
 		// Start new game
 		this.addRandomTile();
@@ -330,7 +347,8 @@ class Game2048 {
 			nextTileId: this.nextTileId,
 			score: this.score,
 			gameOver: this.gameOver,
-			won: this.won
+			won: this.won,
+			isCheating: this.isCheating
 		};
 
 		// Add to history
@@ -344,15 +362,15 @@ class Game2048 {
 
 	undo() {
 		// Double check: if button is disabled, don't proceed
-		if (this.undoBtn && this.undoBtn.disabled && 
+		if (this.undoBtn && this.undoBtn.disabled &&
 		    (!this.undoFromGameOverBtn || this.undoFromGameOverBtn.disabled)) {
 			return;
 		}
-		
+
 		if (this.history.length === 0 || this.animating) {
 			return;
 		}
-		
+
 		// Allow undo even when game is over
 
 		// Get the last saved state
@@ -364,6 +382,7 @@ class Game2048 {
 		this.score = previousState.score;
 		this.gameOver = previousState.gameOver;
 		this.won = previousState.won;
+		this.isCheating = previousState.isCheating || false; // Restore cheating flag
 
 		// Reconstruct tiles Map
 		this.tileContainer.innerHTML = '';
@@ -379,10 +398,15 @@ class Game2048 {
 			});
 		});
 
+		// Clear selected cell state (not part of game state)
+		this.selectedCell = null;
+		this.lastClickedCell = null;
+
 		// Render tiles and update UI
 		this.renderTiles();
 		this.updateScore();
 		this.updateUndoButton();
+		this.updateSelectedCellDisplay();
 		// Hide game over message if it's showing
 		this.hideMessage();
 		this.saveGameState();
@@ -417,7 +441,7 @@ class Game2048 {
 		if (this.fixed4Btn) {
 			const shouldBeActive = this.nextFixedValue === 4;
 			const isActive = this.fixed4Btn.classList.contains('active');
-			
+
 			// Only update if state changed
 			if (shouldBeActive && !isActive) {
 				this.fixed4Btn.classList.add('active');
@@ -425,15 +449,15 @@ class Game2048 {
 				this.fixed4Btn.classList.remove('active');
 			}
 		}
-		
+
 		if (this.fixed8Btn) {
 			// Button 8 is active if nextFixedValue matches any power of 2 from 8 to 2048
-			const shouldBeActive = this.nextFixedValue !== null && 
-				this.nextFixedValue >= 8 && 
-				this.nextFixedValue <= 2048 && 
+			const shouldBeActive = this.nextFixedValue !== null &&
+				this.nextFixedValue >= 8 &&
+				this.nextFixedValue <= 2048 &&
 				(this.nextFixedValue & (this.nextFixedValue - 1)) === 0; // Check if power of 2
 			const isActive = this.fixed8Btn.classList.contains('active');
-			
+
 			// Only update if state changed
 			if (shouldBeActive && !isActive) {
 				this.fixed8Btn.classList.add('active');
@@ -457,6 +481,76 @@ class Game2048 {
 		}
 	}
 
+	handleCellClick(row, col) {
+		// Don't handle clicks during animation or game over
+		if (this.animating || this.gameOver) return;
+
+		// Check if cell is empty
+		if (this.grid[row][col] !== null) return;
+
+		const isSameCell = this.lastClickedCell &&
+			this.lastClickedCell.row === row &&
+			this.lastClickedCell.col === col;
+
+		// If clicking on already selected cell, deselect it
+		if (this.selectedCell && this.selectedCell.row === row && this.selectedCell.col === col) {
+			this.clearSelectedCell();
+			// Also clear last clicked cell when deselecting
+			this.lastClickedCell = null;
+			return;
+		}
+
+		// Check if clicking the same cell for the second time (no time limit)
+		if (isSameCell) {
+			// Second click on the same cell - select it
+			this.setSelectedCell(row, col);
+			// Clear last clicked cell after selection
+			this.lastClickedCell = null;
+		} else {
+			// First click on this cell - record it for potential second click
+			this.lastClickedCell = { row, col };
+		}
+	}
+
+	setSelectedCell(row, col) {
+		// Clear previous selection
+		this.clearSelectedCell();
+
+		// Set new selection
+		this.selectedCell = { row, col };
+		this.updateSelectedCellDisplay();
+	}
+
+	clearSelectedCell() {
+		if (this.selectedCell) {
+			const cell = this.getCellElement(this.selectedCell.row, this.selectedCell.col);
+			if (cell) {
+				cell.classList.remove('selected');
+			}
+			this.selectedCell = null;
+		}
+	}
+
+	updateSelectedCellDisplay() {
+		// Clear all selections first
+		const allCells = this.gridContainer.querySelectorAll('.grid-cell');
+		allCells.forEach(cell => cell.classList.remove('selected'));
+
+		// Add selection to current cell if exists
+		if (this.selectedCell) {
+			const cell = this.getCellElement(this.selectedCell.row, this.selectedCell.col);
+			if (cell) {
+				cell.classList.add('selected');
+			}
+		}
+	}
+
+	getCellElement(row, col) {
+		const cells = this.gridContainer.querySelectorAll('.grid-cell');
+		const index = row * this.gridSize + col;
+		return cells[index] || null;
+	}
+
 	addRandomTile(isNew = true) {
 		const emptyCells = [];
 		for (let r = 0; r < this.gridSize; r++) {
@@ -468,12 +562,30 @@ class Game2048 {
 		}
 
 		if (emptyCells.length > 0) {
-			const { r, c } = emptyCells[Math.floor(Math.random() * emptyCells.length)];
-			
+			let r, c;
+			let usedSelectedCell = false;
+
+			// Check if there's a selected cell and it's empty
+			if (this.selectedCell && this.grid[this.selectedCell.row][this.selectedCell.col] === null) {
+				// Use selected cell
+				r = this.selectedCell.row;
+				c = this.selectedCell.col;
+				usedSelectedCell = true;
+				// Clear selection after use (only valid for this move)
+				this.clearSelectedCell();
+			} else {
+				// Random selection
+				const selected = emptyCells[Math.floor(Math.random() * emptyCells.length)];
+				r = selected.r;
+				c = selected.c;
+			}
+
 			// Use fixed value if set, otherwise use normal random logic
 			let value;
+			let usedFixedValue = false;
 			if (this.nextFixedValue !== null) {
 				value = this.nextFixedValue;
+				usedFixedValue = true;
 				// Check if this was from button 8 easter egg (value >= 8 and power of 2)
 				const wasButton8 = value >= 8 && value <= 2048 && (value & (value - 1)) === 0;
 				this.nextFixedValue = null; // Reset after use
@@ -489,7 +601,16 @@ class Game2048 {
 			} else {
 				value = Math.random() < 0.9 ? 2 : 4;
 			}
-			
+
+			// Detect cheating: if used fixed value >= 8 or selected cell position
+			if (!this.isCheating) {
+				if (usedFixedValue && value >= 8) {
+					this.isCheating = true;
+				} else if (usedSelectedCell) {
+					this.isCheating = true;
+				}
+			}
+
 			const tileId = this.nextTileId++;
 
 			const tile = {
@@ -547,6 +668,11 @@ class Game2048 {
 			// Stage 3: Add new random tile
 			this.addRandomTile();
 			this.renderTiles();
+
+			// Check if selected cell is still empty after move, if not, clear selection
+			if (this.selectedCell && this.grid[this.selectedCell.row][this.selectedCell.col] !== null) {
+				this.clearSelectedCell();
+			}
 
 			this.updateScore();
 			this.saveGameState();
@@ -733,7 +859,7 @@ class Game2048 {
 		// Get gap from computed style (supports responsive gap, iOS Safari compatible)
 		const gap = this.parseGap();
 		const cellSize = (containerWidth - (this.gridSize - 1) * gap) / this.gridSize;
-		
+
 		// Debug: log gap and cellSize on iOS (can be removed later)
 		if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
 			console.log('iOS Debug - Gap:', gap, 'CellSize:', cellSize, 'ContainerWidth:', containerWidth);
@@ -784,7 +910,7 @@ class Game2048 {
 		// Get gap from computed style (supports responsive gap, iOS Safari compatible)
 		const gap = this.parseGap();
 		const cellSize = (containerWidth - (this.gridSize - 1) * gap) / this.gridSize;
-		
+
 		// Debug: log gap and cellSize on iOS (can be removed later)
 		if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
 			console.log('iOS Debug - Gap:', gap, 'CellSize:', cellSize, 'ContainerWidth:', containerWidth);
@@ -829,8 +955,15 @@ class Game2048 {
 		// Update score
 		this.scoreElement.textContent = this.score;
 
-		// Update best score
-		if (this.score > this.bestScore) {
+		// Add underline style if cheating
+		if (this.isCheating) {
+			this.scoreElement.classList.add('cheating-score');
+		} else {
+			this.scoreElement.classList.remove('cheating-score');
+		}
+
+		// Update best score only if not cheating
+		if (!this.isCheating && this.score > this.bestScore) {
 			this.bestScore = this.score;
 			this.bestScoreElement.textContent = this.bestScore;
 			this.saveBestScore();
@@ -850,7 +983,7 @@ class Game2048 {
 			for (let c = 0; c < this.gridSize; c++) {
 				const currentId = this.grid[r][c];
 				if (currentId === null) continue;
-				
+
 				const currentTile = this.tiles.get(currentId);
 				if (!currentTile) continue;
 
@@ -945,7 +1078,8 @@ class Game2048 {
 			score: this.score,
 			gameOver: this.gameOver,
 			won: this.won,
-			history: this.history // Save history for undo functionality
+			history: this.history, // Save history for undo functionality
+			isCheating: this.isCheating // Persist cheating flag
 		};
 
 		if (this.isChromeExtension()) {
@@ -984,7 +1118,8 @@ class Game2048 {
 							score: this.score,
 							gameOver: this.gameOver,
 							won: this.won,
-							history: this.history
+							history: this.history,
+							isCheating: this.isCheating
 						};
 
 						if (!this.isChromeExtension()) {
@@ -1054,8 +1189,12 @@ class Game2048 {
 		this.score = gameState.score;
 		this.gameOver = gameState.gameOver;
 		this.won = gameState.won;
+		this.isCheating = gameState.isCheating || false; // Restore cheating flag
 		// Restore history if available, otherwise initialize empty array
 		this.history = gameState.history || [];
+		// Clear selected cell UI state (not persisted)
+		this.selectedCell = null;
+		this.lastClickedCell = null;
 
 		// Reconstruct tiles Map
 		this.tiles.clear();
@@ -1073,6 +1212,7 @@ class Game2048 {
 		this.renderTiles();
 		this.updateScore();
 		this.updateUndoButton();
+		this.updateSelectedCellDisplay();
 	}
 
 	async saveBestScore() {
@@ -1146,7 +1286,7 @@ function showUpdateNotification() {
 	// Remove existing notification if any
 	const existing = document.getElementById('update-notification');
 	if (existing) existing.remove();
-	
+
 	// Create update notification
 	const notification = document.createElement('div');
 	notification.id = 'update-notification';
@@ -1168,7 +1308,7 @@ function showUpdateNotification() {
 		gap: 16px;
 		max-width: 90%;
 	`;
-	
+
 	notification.innerHTML = `
 		<div style="flex: 1;">
 			<strong>🔄 新版本可用</strong><br>
@@ -1185,15 +1325,15 @@ function showUpdateNotification() {
 			font-size: 18px;
 		">刷新</button>
 	`;
-	
+
 	// Add refresh button click handler
 	const refreshBtn = notification.querySelector('#update-refresh-btn');
 	refreshBtn.addEventListener('click', () => {
 		window.location.reload();
 	});
-	
+
 	document.body.appendChild(notification);
-	
+
 	// Auto-hide after 10 seconds
 	setTimeout(() => {
 		if (notification.parentNode) {
@@ -1213,7 +1353,7 @@ function showUpdateNotification() {
 // 			const vh = window.innerHeight * 0.01;
 // 			document.documentElement.style.setProperty('--vh', `${vh}px`);
 // 		};
-// 		
+//
 // 		setViewportHeight();
 // 		window.addEventListener('resize', setViewportHeight);
 // 		window.addEventListener('orientationchange', () => {
@@ -1258,7 +1398,7 @@ function showUpdateNotification() {
 // 	const isFullscreen = window.matchMedia('(display-mode: fullscreen)').matches;
 // 	const isMinimalUI = window.matchMedia('(display-mode: minimal-ui)').matches;
 // 	const isInstalled = window.navigator.standalone || isStandalone || isFullscreen || isMinimalUI;
-// 	
+//
 // 	const status = {
 // 		isStandalone,
 // 		isFullscreen,
@@ -1273,7 +1413,7 @@ function showUpdateNotification() {
 // 		screenHeight: screen.height,
 // 		hasAddressBar: window.outerHeight > window.innerHeight + 50 // Rough estimate
 // 	};
-// 	
+//
 // 	// Log status for debugging
 // 	console.log('=== PWA Status Check ===');
 // 	console.log('Is Installed:', status.isInstalled);
@@ -1286,12 +1426,12 @@ function showUpdateNotification() {
 // 	console.log('Screen height:', status.screenHeight);
 // 	console.log('Has Address Bar (estimated):', status.hasAddressBar);
 // 	console.log('========================');
-// 	
+//
 // 	// Show visual indicator on page (only on mobile)
 // 	if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
 // 		showPWAStatusIndicator(status);
 // 	}
-// 	
+//
 // 	// Show warning if not in standalone mode
 // 	if (!status.isInstalled && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
 // 		console.warn('⚠️ PWA is not running in standalone mode. Address bar may be visible.');
@@ -1306,7 +1446,7 @@ function showUpdateNotification() {
 // 		console.warn('   - Chrome menu (3 dots) → "Add to Home screen" or "Install app"');
 // 		console.warn('3. Then open from the home screen icon (not from browser)');
 // 	}
-// 	
+//
 // 	return status;
 // }
 
@@ -1315,7 +1455,7 @@ function showUpdateNotification() {
 // 	// Remove existing indicator if any
 // 	const existing = document.getElementById('pwa-status-indicator');
 // 	if (existing) existing.remove();
-// 	
+//
 // 	// Create status indicator
 // 	const indicator = document.createElement('div');
 // 	indicator.id = 'pwa-status-indicator';
@@ -1335,7 +1475,7 @@ function showUpdateNotification() {
 // 		max-width: 280px;
 // 		line-height: 1.5;
 // 	`;
-// 	
+//
 // 	let installInstructions = '';
 // 	if (!status.isInstalled) {
 // 		installInstructions = `
@@ -1347,7 +1487,7 @@ function showUpdateNotification() {
 // 			</div>
 // 		`;
 // 	}
-// 	
+//
 // 	indicator.innerHTML = `
 // 		<div style="font-weight: bold; margin-bottom: 6px;">PWA 状态</div>
 // 		<div>模式: <strong>${status.displayMode}</strong></div>
@@ -1358,14 +1498,14 @@ function showUpdateNotification() {
 // 			点击关闭
 // 		</div>
 // 	`;
-// 	
+//
 // 	// Add click to close
 // 	indicator.addEventListener('click', () => {
 // 		indicator.style.opacity = '0';
 // 		indicator.style.transition = 'opacity 0.3s';
 // 		setTimeout(() => indicator.remove(), 300);
 // 	});
-// 	
+//
 // 	// Auto-hide after 10 seconds (longer if not installed)
 // 	setTimeout(() => {
 // 		if (indicator.parentNode) {
@@ -1374,7 +1514,7 @@ function showUpdateNotification() {
 // 			setTimeout(() => indicator.remove(), 500);
 // 		}
 // 	}, status.isInstalled ? 5000 : 10000);
-// 	
+//
 // 	document.body.appendChild(indicator);
 // }
 
@@ -1382,9 +1522,9 @@ function showUpdateNotification() {
 document.addEventListener('DOMContentLoaded', () => {
 	// Check PWA status first
 	// const pwaStatus = checkPWAStatus();
-	
+
 	new Game2048();
-	
+
 	// Hide address bar on mobile (only if not in standalone mode)
 	// if (!pwaStatus.isStandalone) {
 	// 	hideAddressBar();
@@ -1404,7 +1544,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // 		serviceWorkerReason: null,
 // 		isSecureContext: window.isSecureContext || location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1'
 // 	};
-// 	
+//
 // 	// Check Service Worker support (more detailed check)
 // 	try {
 // 		if ('serviceWorker' in navigator) {
@@ -1412,7 +1552,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // 		} else {
 // 			checks.hasServiceWorker = false;
 // 			checks.serviceWorkerReason = 'navigator.serviceWorker 不存在';
-// 			
+//
 // 			// Check if it's a security context issue
 // 			if (!checks.isSecureContext && location.protocol !== 'https:') {
 // 				checks.serviceWorkerReason = '需要HTTPS或localhost（当前使用HTTP）';
@@ -1426,7 +1566,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // 		checks.hasServiceWorker = false;
 // 		checks.serviceWorkerReason = '检查Service Worker支持时出错: ' + e.message;
 // 	}
-// 	
+//
 // 	// Check manifest
 // 	try {
 // 		const manifestLink = document.querySelector('link[rel="manifest"]');
@@ -1444,7 +1584,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // 		console.error('Manifest check failed:', e);
 // 		checks.manifestError = e.message;
 // 	}
-// 	
+//
 // 	// Check Service Worker registration
 // 	if (checks.hasServiceWorker) {
 // 		try {
@@ -1455,7 +1595,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // 			checks.serviceWorkerError = e.message;
 // 		}
 // 	}
-// 	
+//
 // 	console.log('=== PWA Installability Check ===');
 // 	console.log('Has Manifest:', checks.hasManifest);
 // 	console.log('Manifest Valid:', checks.manifestValid);
@@ -1468,7 +1608,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // 		console.log('Service Worker Reason:', checks.serviceWorkerReason);
 // 	}
 // 	console.log('===============================');
-// 	
+//
 // 	// Show issues
 // 	const issues = [];
 // 	if (!checks.hasManifest) issues.push('❌ Manifest文件未找到');
@@ -1487,19 +1627,19 @@ document.addEventListener('DOMContentLoaded', () => {
 // 		}
 // 	}
 // 	if (!checks.hasIcons) issues.push('❌ Manifest中缺少图标配置');
-// 	
+//
 // 	if (issues.length > 0) {
 // 		console.warn('PWA安装条件检查发现问题：');
 // 		issues.forEach(issue => console.warn(issue));
 // 		console.warn('');
 // 		console.warn('这可能导致只能"创建快捷方式"而不是"安装应用"');
 // 	}
-// 	
+//
 // 	// Show on page for mobile users
 // 	if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
 // 		showPWAInstallabilityIndicator(checks, issues);
 // 	}
-// 	
+//
 // 	return checks;
 // }
 
@@ -1508,10 +1648,10 @@ document.addEventListener('DOMContentLoaded', () => {
 // 	// Remove existing indicator if any
 // 	const existing = document.getElementById('pwa-installability-indicator');
 // 	if (existing) existing.remove();
-// 	
+//
 // 	// Only show if there are issues
 // 	if (issues.length === 0) return;
-// 	
+//
 // 	// Create indicator
 // 	const indicator = document.createElement('div');
 // 	indicator.id = 'pwa-installability-indicator';
@@ -1532,9 +1672,9 @@ document.addEventListener('DOMContentLoaded', () => {
 // 		max-height: 60vh;
 // 		overflow-y: auto;
 // 	`;
-// 	
+//
 // 	let issuesHtml = issues.map(issue => `<div>${issue}</div>`).join('');
-// 	
+//
 // 	indicator.innerHTML = `
 // 		<div style="font-weight: bold; margin-bottom: 8px; font-size: 13px;">
 // 			⚠️ PWA安装问题诊断
@@ -1555,14 +1695,14 @@ document.addEventListener('DOMContentLoaded', () => {
 // 			点击关闭
 // 		</div>
 // 	`;
-// 	
+//
 // 	// Add click to close
 // 	indicator.addEventListener('click', () => {
 // 		indicator.style.opacity = '0';
 // 		indicator.style.transition = 'opacity 0.3s';
 // 		setTimeout(() => indicator.remove(), 300);
 // 	});
-// 	
+//
 // 	// Auto-hide after 15 seconds
 // 	setTimeout(() => {
 // 		if (indicator.parentNode) {
@@ -1571,17 +1711,17 @@ document.addEventListener('DOMContentLoaded', () => {
 // 			setTimeout(() => indicator.remove(), 500);
 // 		}
 // 	}, 15000);
-// 	
+//
 // 	document.body.appendChild(indicator);
 // }
 
 // Also hide address bar after page fully loads
 window.addEventListener('load', async () => {
 	// hideAddressBar();
-	
+
 	// Check PWA installability
 	// await checkPWAInstallability();
-	
+
 	// Register Service Worker for PWA (moved from inline script to fix CSP)
 	if ('serviceWorker' in navigator) {
 		// Use relative path for service worker
@@ -1589,12 +1729,12 @@ window.addEventListener('load', async () => {
 		navigator.serviceWorker.register(swPath)
 			.then((registration) => {
 				// console.log('✅ Service Worker registered successfully:', registration);
-				
+
 				// Check for updates periodically
 				setInterval(() => {
 					registration.update();
 				}, 60000); // Check every minute
-				
+
 				// Listen for updates
 				registration.addEventListener('updatefound', () => {
 					const newWorker = registration.installing;
@@ -1612,7 +1752,7 @@ window.addEventListener('load', async () => {
 				// console.error('❌ Service Worker registration failed:', error);
 				// console.error('这可能导致PWA无法安装，只能创建快捷方式');
 			});
-		
+
 		// Listen for controller change (when new service worker takes control)
 		navigator.serviceWorker.addEventListener('controllerchange', () => {
 			// Reload page to get new version
