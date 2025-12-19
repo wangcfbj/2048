@@ -15,6 +15,8 @@ class Game2048 {
 		this.maxHistorySteps = 32;
 		this.nextFixedValue = null; // Fixed value for next random tile (4 or 8)
 		this.fixed8DisplayValue = 8; // Current display value for button 8 (easter egg)
+		this.lastAutoSaveTime = 0; // Timestamp of last periodic auto-save
+		this.autoSaveInterval = 30000; // Normal play: save at most once every 30s
 
 		this.gridContainer = document.getElementById('grid-container');
 		this.tileContainer = document.getElementById('tile-container');
@@ -38,6 +40,8 @@ class Game2048 {
 		this.updateUndoButton();
 		// Ensure fixed value buttons state is correct
 		this.updateFixedValueButtons();
+		// Setup page unload handler to save state immediately
+		this.setupUnloadHandler();
 	}
 
 	createGrid() {
@@ -307,7 +311,8 @@ class Game2048 {
 		this.renderTiles();
 		this.updateScore();
 		this.updateUndoButton();
-		this.saveGameState();
+		// New game is important, save immediately
+		this.saveGameStateImmediate();
 	}
 
 	saveStateToHistory() {
@@ -902,7 +907,29 @@ class Game2048 {
 	}
 
 	// Chrome Storage Methods
-	async saveGameState() {
+	// Throttled auto-save: during normal play, save at most once every autoSaveInterval (30s)
+	saveGameState() {
+		const now = Date.now();
+
+		// First save in this session: save immediately
+		if (!this.lastAutoSaveTime) {
+			this.lastAutoSaveTime = now;
+			this.saveGameStateImmediate();
+			return;
+		}
+
+		const elapsed = now - this.lastAutoSaveTime;
+
+		// Only auto-save if interval has passed
+		if (elapsed >= this.autoSaveInterval) {
+			this.lastAutoSaveTime = now;
+			this.saveGameStateImmediate();
+		}
+		// Otherwise, do nothing and rely on the next call or unload handler
+	}
+
+	// Immediate save: actually performs the save operation
+	async saveGameStateImmediate() {
 		// Convert tiles Map to array for storage
 		const tilesArray = Array.from(this.tiles.entries()).map(([id, tile]) => ({
 			id,
@@ -917,7 +944,8 @@ class Game2048 {
 			nextTileId: this.nextTileId,
 			score: this.score,
 			gameOver: this.gameOver,
-			won: this.won
+			won: this.won,
+			history: this.history // Save history for undo functionality
 		};
 
 		if (this.isChromeExtension()) {
@@ -929,6 +957,59 @@ class Game2048 {
 			localStorage.setItem('gameState', JSON.stringify(gameState));
 			return Promise.resolve();
 		}
+	}
+
+	// Setup page unload handler to ensure state is saved before leaving
+	setupUnloadHandler() {
+		// Save immediately when page is about to unload
+		const handleUnload = () => {
+			// Use sendBeacon for reliable saving on page unload (if available)
+			if (navigator.sendBeacon) {
+				// For localStorage, we still need to use synchronous save
+				// Chrome extension storage is async but we can't wait
+				this.saveGameStateImmediate().catch(() => {
+					// Fallback: try synchronous localStorage save
+					try {
+						const tilesArray = Array.from(this.tiles.entries()).map(([id, tile]) => ({
+							id,
+							value: tile.value,
+							row: tile.row,
+							col: tile.col
+						}));
+
+						const gameState = {
+							grid: this.grid,
+							tiles: tilesArray,
+							nextTileId: this.nextTileId,
+							score: this.score,
+							gameOver: this.gameOver,
+							won: this.won,
+							history: this.history
+						};
+
+						if (!this.isChromeExtension()) {
+							localStorage.setItem('gameState', JSON.stringify(gameState));
+						}
+					} catch (e) {
+						console.error('Failed to save game state on unload:', e);
+					}
+				});
+			} else {
+				// Fallback for browsers without sendBeacon
+				this.saveGameStateImmediate().catch(() => {});
+			}
+		};
+
+		// Listen to multiple events to catch all unload scenarios
+		window.addEventListener('beforeunload', handleUnload);
+		window.addEventListener('pagehide', handleUnload);
+		
+		// For mobile Safari, also listen to visibilitychange
+		document.addEventListener('visibilitychange', () => {
+			if (document.visibilityState === 'hidden') {
+				handleUnload();
+			}
+		});
 	}
 
 	async loadGameState() {
@@ -973,8 +1054,8 @@ class Game2048 {
 		this.score = gameState.score;
 		this.gameOver = gameState.gameOver;
 		this.won = gameState.won;
-		// Clear history when loading saved state (don't restore history)
-		this.history = [];
+		// Restore history if available, otherwise initialize empty array
+		this.history = gameState.history || [];
 
 		// Reconstruct tiles Map
 		this.tiles.clear();
