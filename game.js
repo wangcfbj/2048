@@ -213,24 +213,63 @@ class Game2048 {
 		const swipeArea = document.querySelector('.swipe-area');
 		const touchTargets = [gameContainer, swipeArea].filter(el => el !== null);
 
-		// Prevent pull-to-refresh on mobile when touching game container
+		// Prevent pull-to-refresh and page scrolling on mobile when touching game container
 		let isTouchingGameContainer = false;
 		let touchStartYGlobal = null;
+		let touchStartXGlobal = null;
+
+		// Helper function to check if touch is within game area
+		const isTouchInGameArea = (e) => {
+			const touch = e.touches[0] || e.changedTouches[0];
+			if (!touch) return false;
+			
+			// Check if touch is within game container or swipe area
+			const gameContainerRect = gameContainer?.getBoundingClientRect();
+			const swipeAreaRect = swipeArea?.getBoundingClientRect();
+			
+			if (gameContainerRect) {
+				const inGameContainer = touch.clientX >= gameContainerRect.left &&
+					touch.clientX <= gameContainerRect.right &&
+					touch.clientY >= gameContainerRect.top &&
+					touch.clientY <= gameContainerRect.bottom;
+				if (inGameContainer) return true;
+			}
+			
+			if (swipeAreaRect) {
+				const inSwipeArea = touch.clientX >= swipeAreaRect.left &&
+					touch.clientX <= swipeAreaRect.right &&
+					touch.clientY >= swipeAreaRect.top &&
+					touch.clientY <= swipeAreaRect.bottom;
+				if (inSwipeArea) return true;
+			}
+			
+			return false;
+		};
 
 		// Helper function to handle touch start
 		const handleTouchStart = (e) => {
-			isTouchingGameContainer = true;
-			touchStartYGlobal = e.touches[0].clientY;
+			if (isTouchInGameArea(e)) {
+				isTouchingGameContainer = true;
+				const firstTouch = e.touches[0];
+				touchStartYGlobal = firstTouch.clientY;
+				touchStartXGlobal = firstTouch.clientX;
 
-			if (this.gameOver || this.animating) return;
-			const firstTouch = e.touches[0];
-			touchStartX = firstTouch.clientX;
-			touchStartY = firstTouch.clientY;
+				if (this.gameOver || this.animating) return;
+				touchStartX = firstTouch.clientX;
+				touchStartY = firstTouch.clientY;
+			}
 		};
 
 		// Helper function to handle touch end
 		const handleTouchEnd = async (e) => {
-			if (this.gameOver || this.animating || touchStartX === null || touchStartY === null) return;
+			if (!isTouchingGameContainer) return;
+			
+			if (this.gameOver || this.animating || touchStartX === null || touchStartY === null) {
+				isTouchingGameContainer = false;
+				touchStartXGlobal = null;
+				touchStartYGlobal = null;
+				return;
+			}
 
 			const touchEndX = e.changedTouches[0].clientX;
 			const touchEndY = e.changedTouches[0].clientY;
@@ -245,6 +284,9 @@ class Game2048 {
 			if (absDeltaX < minSwipeDistance && absDeltaY < minSwipeDistance) {
 				touchStartX = null;
 				touchStartY = null;
+				isTouchingGameContainer = false;
+				touchStartXGlobal = null;
+				touchStartYGlobal = null;
 				return;
 			}
 
@@ -266,12 +308,16 @@ class Game2048 {
 
 			touchStartX = null;
 			touchStartY = null;
+			isTouchingGameContainer = false;
+			touchStartXGlobal = null;
+			touchStartYGlobal = null;
 		};
 
-		// Helper function to handle touch end (for pull-to-refresh prevention)
+		// Helper function to handle touch end (for cleanup)
 		const handleTouchEndCleanup = () => {
 			isTouchingGameContainer = false;
 			touchStartYGlobal = null;
+			touchStartXGlobal = null;
 		};
 
 		// Add event listeners to all touch targets
@@ -282,15 +328,21 @@ class Game2048 {
 			target.addEventListener('touchcancel', handleTouchEndCleanup, { passive: true });
 		});
 
+		// Global touchmove handler to prevent page scrolling when touching game area
 		document.addEventListener('touchmove', (e) => {
-			// Prevent pull-to-refresh when touching game container and scrolling down from top
-			if (isTouchingGameContainer && touchStartYGlobal !== null) {
-				const currentY = e.touches[0].clientY;
-				const deltaY = currentY - touchStartYGlobal;
-
-				// If at top of page and scrolling down, prevent pull-to-refresh
-				if (window.scrollY === 0 && deltaY > 0) {
-					e.preventDefault();
+			if (isTouchingGameContainer && touchStartYGlobal !== null && touchStartXGlobal !== null) {
+				// Always prevent default scrolling when touching game area
+				// This prevents the page from moving during swipe gestures
+				e.preventDefault();
+			} else if (isTouchingGameContainer && touchStartYGlobal !== null) {
+				// Fallback: prevent pull-to-refresh when touching game container and scrolling down from top
+				const currentY = e.touches[0]?.clientY;
+				if (currentY !== undefined) {
+					const deltaY = currentY - touchStartYGlobal;
+					// If at top of page and scrolling down, prevent pull-to-refresh
+					if (window.scrollY === 0 && deltaY > 0) {
+						e.preventDefault();
+					}
 				}
 			}
 		}, { passive: false });
