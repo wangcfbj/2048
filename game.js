@@ -21,6 +21,10 @@ class Game2048 {
 		this.lastClickedCell = null; // Track last clicked cell for second click detection
 		this.isCheating = false; // Cheating flag: true if used fixed value >= 8 or selected cell position
 
+		// Logic optimization properties
+		this.inputQueue = [];
+		this.isMoving = false;
+
 		this.gridContainer = document.getElementById('grid-container');
 		this.tileContainer = document.getElementById('tile-container');
 		this.scoreElement = document.getElementById('score');
@@ -222,11 +226,11 @@ class Game2048 {
 		const isTouchInGameArea = (e) => {
 			const touch = e.touches[0] || e.changedTouches[0];
 			if (!touch) return false;
-			
+
 			// Check if touch is within game container or swipe area
 			const gameContainerRect = gameContainer?.getBoundingClientRect();
 			const swipeAreaRect = swipeArea?.getBoundingClientRect();
-			
+
 			if (gameContainerRect) {
 				const inGameContainer = touch.clientX >= gameContainerRect.left &&
 					touch.clientX <= gameContainerRect.right &&
@@ -234,7 +238,7 @@ class Game2048 {
 					touch.clientY <= gameContainerRect.bottom;
 				if (inGameContainer) return true;
 			}
-			
+
 			if (swipeAreaRect) {
 				const inSwipeArea = touch.clientX >= swipeAreaRect.left &&
 					touch.clientX <= swipeAreaRect.right &&
@@ -242,7 +246,7 @@ class Game2048 {
 					touch.clientY <= swipeAreaRect.bottom;
 				if (inSwipeArea) return true;
 			}
-			
+
 			return false;
 		};
 
@@ -263,7 +267,7 @@ class Game2048 {
 		// Helper function to handle touch end
 		const handleTouchEnd = async (e) => {
 			if (!isTouchingGameContainer) return;
-			
+
 			if (this.gameOver || this.animating || touchStartX === null || touchStartY === null) {
 				isTouchingGameContainer = false;
 				touchStartXGlobal = null;
@@ -415,7 +419,7 @@ class Game2048 {
 	undo() {
 		// Double check: if button is disabled, don't proceed
 		if (this.undoBtn && this.undoBtn.disabled &&
-		    (!this.undoFromGameOverBtn || this.undoFromGameOverBtn.disabled)) {
+			(!this.undoFromGameOverBtn || this.undoFromGameOverBtn.disabled)) {
 			return;
 		}
 
@@ -680,31 +684,41 @@ class Game2048 {
 	}
 
 	async move(direction) {
-		// Save current state to history BEFORE calculating the move
-		// This ensures we save the state before any modifications
-		this.saveStateToHistory();
+		this.enqueueMove(direction);
+	}
 
-		const moveResult = this.calculateMove(direction);
+	enqueueMove(direction) {
+		this.inputQueue.push(direction);
+		this.processInputQueue();
+	}
 
-		if (!moveResult.moved) {
-			// If no valid move, remove the state we just saved
-			this.history.pop();
-			// Update button state since history changed
-			this.updateUndoButton();
-			return; // No valid move, don't animate or block
-		}
+	async processInputQueue() {
+		if (this.isMoving || this.inputQueue.length === 0) return;
 
-		this.animating = true;
-		// Don't update button state during animation to reduce UI flickering
+		this.isMoving = true;
+		const direction = this.inputQueue.shift();
 
 		try {
-			// Stage 1: Move all tiles to their target positions (including source tiles that will merge)
+			this.saveStateToHistory();
+			const moveResult = this.calculateMove(direction);
+
+			if (!moveResult.moved) {
+				this.history.pop();
+				this.updateUndoButton();
+				this.isMoving = false;
+				this.processInputQueue();
+				return;
+			}
+
+			this.animating = true;
+
+			// Stage 1: Movement
 			this.renderTilesForMovement(moveResult.mergeInfo);
 
-			// Wait for movement animation to complete
-			await new Promise(resolve => setTimeout(resolve, 100));
+			// Core delay for move animation (aligned with CSS 0.08s)
+			await new Promise(resolve => setTimeout(resolve, 80));
 
-			// Stage 2: Now mark source tiles for removal and perform merges
+			// Stage 2 & 3 Combined: Merge Logic + New Tile + Single Render
 			moveResult.tilesToRemove.forEach(id => {
 				const tile = this.tiles.get(id);
 				if (tile) tile.toRemove = true;
@@ -712,28 +726,26 @@ class Game2048 {
 
 			this.performMerges(moveResult.mergeInfo);
 			this.cleanupMergedTiles();
-			this.renderTiles();
 
-			// Wait for merge animation (pop effect)
-			await new Promise(resolve => setTimeout(resolve, 50));
-
-			// Stage 3: Add new random tile
+			// Add new tile BEFORE rendering so it appears in the same frame as the merge
 			this.addRandomTile();
+
+			// Single consolidated render
 			this.renderTiles();
 
-			// Check if selected cell is still empty after move, if not, clear selection
 			if (this.selectedCell && this.grid[this.selectedCell.row][this.selectedCell.col] !== null) {
 				this.clearSelectedCell();
 			}
 
 			this.updateScore();
 			this.saveGameState();
-			// Update button state after move completes (history has changed)
 			this.updateUndoButton();
 		} finally {
 			this.animating = false;
-			// Check game over after animation completes
+			this.isMoving = false;
 			this.checkGameOver();
+			// Process next input in queue immediately for continuity
+			this.processInputQueue();
 		}
 	}
 
@@ -1183,14 +1195,14 @@ class Game2048 {
 				});
 			} else {
 				// Fallback for browsers without sendBeacon
-				this.saveGameStateImmediate().catch(() => {});
+				this.saveGameStateImmediate().catch(() => { });
 			}
 		};
 
 		// Listen to multiple events to catch all unload scenarios
 		window.addEventListener('beforeunload', handleUnload);
 		window.addEventListener('pagehide', handleUnload);
-		
+
 		// For mobile Safari, also listen to visibilitychange
 		document.addEventListener('visibilitychange', () => {
 			if (document.visibilityState === 'hidden') {
