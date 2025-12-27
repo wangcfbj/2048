@@ -1,4 +1,5 @@
 // 2048 Game Logic with Chrome Storage Integration and Animations
+const APP_VERSION = 'v29'; // Should match sw.js CACHE_NAME version
 
 class Game2048 {
 	constructor() {
@@ -34,6 +35,8 @@ class Game2048 {
 		this.undoFromGameOverBtn = document.getElementById('undo-from-gameover');
 		this.fixed4Btn = document.getElementById('fixed-4-btn');
 		this.fixed8Btn = document.getElementById('fixed-8-btn');
+		this.gameTitle = document.getElementById('game-title');
+		this.appVersionElement = document.getElementById('app-version');
 
 		this.init();
 	}
@@ -47,6 +50,8 @@ class Game2048 {
 		this.updateUndoButton();
 		// Ensure fixed value buttons state is correct
 		this.updateFixedValueButtons();
+		// Initial check for post-update notification
+		this.checkPostUpdateStatus();
 		// Setup page unload handler to save state immediately
 		this.setupUnloadHandler();
 	}
@@ -169,6 +174,10 @@ class Game2048 {
 			});
 		}
 
+		// Check for updates (click title)
+		if (this.gameTitle) {
+			this.gameTitle.parentElement.addEventListener('click', () => this.checkForUpdates());
+		}
 	}
 
 	// Helper function to parse gap value from computed style (iOS Safari compatible)
@@ -1343,6 +1352,115 @@ class Game2048 {
 		}
 	}
 
+	// Update Logic
+	async checkForUpdates() {
+		// Handle Chrome Extension environment
+		if (this.isChromeExtension()) {
+			this.showToast('正在检查扩展更新...', 'info');
+			if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.requestUpdateCheck) {
+				chrome.runtime.requestUpdateCheck((status) => {
+					if (status === 'update_available') {
+						this.showToast('扩展有新版本可用，请在管理页面更新', 'info');
+					} else {
+						this.showToast('扩展已是最新版本');
+					}
+				});
+			} else {
+				this.showToast('此环境不支持手动检查扩展更新');
+			}
+			return;
+		}
+
+		// Handle PWA/Web environment
+		if (!('serviceWorker' in navigator)) {
+			this.showToast('此浏览器不支持 PWA 自动更新');
+			return;
+		}
+
+		if (this.isCheckingUpdates) return;
+		this.isCheckingUpdates = true;
+
+		this.showToast('正在检查 PWA 更新...', 'info');
+
+		try {
+			const registration = await navigator.serviceWorker.getRegistration();
+			if (registration) {
+				await registration.update();
+
+				// If no update is found within 2 seconds, show "Already up to date"
+				setTimeout(() => {
+					if (this.isCheckingUpdates) {
+						this.showToast('当前已是最新版本');
+						this.isCheckingUpdates = false;
+					}
+				}, 2000);
+			} else {
+				this.showToast('未找到 Service Worker');
+				this.isCheckingUpdates = false;
+			}
+		} catch (error) {
+			console.error('Check update failed:', error);
+			this.showToast('检查更新失败');
+			this.isCheckingUpdates = false;
+		}
+	}
+
+	checkPostUpdateStatus() {
+		const lastVersion = localStorage.getItem('last_version');
+		if (lastVersion && lastVersion !== APP_VERSION) {
+			this.showToast(`升级成功！当前版本: ${APP_VERSION}`, 'success');
+		}
+		localStorage.setItem('last_version', APP_VERSION);
+		if (this.appVersionElement) {
+			this.appVersionElement.textContent = APP_VERSION;
+		}
+	}
+
+	showToast(message, type = 'info') {
+		const existingToast = document.getElementById('app-toast');
+		if (existingToast) existingToast.remove();
+
+		const toast = document.createElement('div');
+		toast.id = 'app-toast';
+		toast.style.cssText = `
+			position: fixed;
+			top: 20px;
+			left: 50%;
+			transform: translateX(-50%);
+			background: ${type === 'success' ? '#4caf50' : 'rgba(0,0,0,0.8)'};
+			color: white;
+			padding: 12px 24px;
+			border-radius: 8px;
+			font-size: 16px;
+			z-index: 10002;
+			box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+			animation: slideDown 0.3s ease;
+			pointer-events: none;
+		`;
+		toast.textContent = message;
+
+		// Add animation style if not exists
+		if (!document.getElementById('toast-style')) {
+			const style = document.createElement('style');
+			style.id = 'toast-style';
+			style.textContent = `
+				@keyframes slideDown {
+					from { transform: translate(-50%, -100%); opacity: 0; }
+					to { transform: translate(-50%, 0); opacity: 1; }
+				}
+			`;
+			document.head.appendChild(style);
+		}
+
+		document.body.appendChild(toast);
+
+		setTimeout(() => {
+			toast.style.opacity = '0';
+			toast.style.transition = 'opacity 0.5s ease';
+			setTimeout(() => toast.remove(), 500);
+		}, 3000);
+	}
+
 }
 
 // Show update notification when new version is available
@@ -1806,6 +1924,9 @@ window.addEventListener('load', async () => {
 						newWorker.addEventListener('statechange', () => {
 							if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
 								// New service worker available, show update notification
+								if (this.isCheckingUpdates) {
+									this.isCheckingUpdates = false;
+								}
 								showUpdateNotification();
 							}
 						});

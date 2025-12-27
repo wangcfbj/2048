@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -10,7 +11,8 @@
   <meta name="apple-mobile-web-app-title" content="2048">
   <!-- Prevent pull-to-refresh on iOS -->
   <style>
-    html, body {
+    html,
+    body {
       overscroll-behavior-y: contain;
       -webkit-overflow-scrolling: touch;
       /* Prevent address bar from showing */
@@ -24,10 +26,14 @@
   <link rel="apple-touch-icon" href="img/icon.png">
   <link rel="stylesheet" href="game.css">
 </head>
+
 <body>
   <div class="container">
     <div class="header">
-      <h1 class="title">2048</h1>
+      <div class="title-container">
+        <h1 class="title" id="game-title">2048</h1>
+        <div class="version-tag" id="app-version">v29</div>
+      </div>
       <div class="scores-container">
         <div class="score-box">
           <div class="score-label">分数</div>
@@ -64,9 +70,12 @@
         <button class="retry-btn" id="retry">重新开始</button>
       </div>
     </div>
+
+  </div>
   </div>
 
 
   <script src="game.js"></script>
 </body>
+
 </html>
