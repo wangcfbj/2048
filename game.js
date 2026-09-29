@@ -1,5 +1,5 @@
 // 2048 Game Logic with Chrome Storage Integration and Animations
-const APP_VERSION = 'v29'; // Should match sw.js CACHE_NAME version
+const APP_VERSION = 'v30'; // Should match sw.js CACHE_NAME version
 
 class Game2048 {
 	constructor() {
@@ -467,6 +467,8 @@ class Game2048 {
 		this.selectedCell = null;
 		this.lastClickedCell = null;
 
+		// Fix: heal any inconsistencies in the restored history snapshot before rendering
+		this.validateAndHealState();
 		// Render tiles and update UI
 		this.renderTiles();
 		this.updateScore();
@@ -741,6 +743,9 @@ class Game2048 {
 
 			// Single consolidated render
 			this.renderTiles();
+
+			// Fix: clear mergedFrom flags after render so they don't persist across moves
+			this.tiles.forEach(tile => { tile.mergedFrom = null; });
 
 			if (this.selectedCell && this.grid[this.selectedCell.row][this.selectedCell.col] !== null) {
 				this.clearSelectedCell();
@@ -1136,16 +1141,22 @@ class Game2048 {
 
 	// Immediate save: actually performs the save operation
 	async saveGameStateImmediate() {
-		// Convert tiles Map to array for storage
-		const tilesArray = Array.from(this.tiles.entries()).map(([id, tile]) => ({
-			id,
-			value: tile.value,
-			row: tile.row,
-			col: tile.col
-		}));
+		// Fix: validate state before saving to prevent persisting ghost tiles
+		this.validateAndHealState();
+
+		// Fix: filter out any residual transient-state tiles (toRemove / hidden)
+		// and deep-copy grid so async Chrome storage write gets a stable snapshot
+		const tilesArray = Array.from(this.tiles.entries())
+			.filter(([, tile]) => !tile.toRemove && !tile.hidden)
+			.map(([id, tile]) => ({
+				id,
+				value: tile.value,
+				row: tile.row,
+				col: tile.col
+			}));
 
 		const gameState = {
-			grid: this.grid,
+			grid: this.grid.map(row => [...row]), // Fix: deep-copy to avoid reference mutation during async write
 			tiles: tilesArray,
 			nextTileId: this.nextTileId,
 			score: this.score,
@@ -1282,6 +1293,8 @@ class Game2048 {
 			});
 		});
 
+		// Fix: heal any inconsistencies in restored state before rendering
+		this.validateAndHealState();
 		this.renderTiles();
 		this.updateScore();
 		this.updateUndoButton();
@@ -1427,7 +1440,7 @@ class Game2048 {
 			top: 20px;
 			left: 50%;
 			transform: translateX(-50%);
-			background: ${type === 'success' ? '#4caf50' : 'rgba(0,0,0,0.8)'};
+			background: ${type === 'success' ? '#4caf50' : type === 'warn' ? '#e65100' : 'rgba(0,0,0,0.8)'};
 			color: white;
 			padding: 12px 24px;
 			border-radius: 8px;
@@ -1459,6 +1472,104 @@ class Game2048 {
 			toast.style.transition = 'opacity 0.5s ease';
 			setTimeout(() => toast.remove(), 500);
 		}, 3000);
+	}
+
+	// ── State Integrity Guard ─────────────────────────────────────────────────
+	// Cross-validates this.grid (position index) and this.tiles (data map).
+	// Detects and repairs any inconsistency regardless of its root cause.
+	// Returns true if healing was needed (caller may choose to notify user).
+	validateAndHealState() {
+		let healedOrphan = false;    // tile in Map but not in grid
+		let healedDeadRef = false;   // grid cell points to non-existent tile
+		let healedPosMeta = false;   // tile.row/col disagrees with grid position
+		let healedIdCounter = false; // nextTileId <= largest existing id
+
+		// ── Pass 1: collect tile ids actually present in grid ────────────────
+		const gridTileIds = new Set();
+		for (let r = 0; r < this.gridSize; r++) {
+			for (let c = 0; c < this.gridSize; c++) {
+				const id = this.grid[r][c];
+				if (id !== null) gridTileIds.add(id);
+			}
+		}
+
+		// ── Pass 2: remove orphan / stale tiles from the Map ─────────────────
+		// An orphan tile is one present in this.tiles but absent from this.grid,
+		// OR one still carrying a transient flag (toRemove / hidden) that should
+		// have been cleaned up by cleanupMergedTiles / performMerges.
+		const orphanIds = [];
+		this.tiles.forEach((tile, id) => {
+			if (!gridTileIds.has(id) || tile.toRemove || tile.hidden) {
+				orphanIds.push(id);
+			}
+		});
+		orphanIds.forEach(id => {
+			const el = document.getElementById(`tile-${id}`);
+			if (el) el.remove();
+			this.tiles.delete(id);
+			healedOrphan = true;
+		});
+
+		// ── Pass 3: fix grid cells that reference missing tile ids ───────────
+		for (let r = 0; r < this.gridSize; r++) {
+			for (let c = 0; c < this.gridSize; c++) {
+				const id = this.grid[r][c];
+				if (id !== null && !this.tiles.has(id)) {
+					this.grid[r][c] = null;
+					healedDeadRef = true;
+				}
+			}
+		}
+
+		// ── Pass 4: fix tile row/col metadata that disagrees with grid ───────
+		this.tiles.forEach((tile, id) => {
+			if (this.grid[tile.row]?.[tile.col] !== id) {
+				// Scan grid to find where this tile actually lives
+				let found = false;
+				for (let r = 0; r < this.gridSize && !found; r++) {
+					for (let c = 0; c < this.gridSize && !found; c++) {
+						if (this.grid[r][c] === id) {
+							tile.row = r;
+							tile.col = c;
+							found = true;
+							healedPosMeta = true;
+						}
+					}
+				}
+				// If not found in grid at all, it was already removed in Pass 2/3;
+				// nothing more to do here.
+			}
+		});
+
+		// ── Pass 5: clean residual transient flags on surviving tiles ────────
+		this.tiles.forEach(tile => {
+			tile.mergedFrom = null;
+			tile.isNew = false;
+			delete tile.toRemove;
+			delete tile.hidden;
+		});
+
+		// ── Pass 6: ensure nextTileId is strictly above all existing ids ─────
+		let maxId = 0;
+		this.tiles.forEach((_, id) => { if (id > maxId) maxId = id; });
+		if (this.nextTileId <= maxId) {
+			this.nextTileId = maxId + 1;
+			healedIdCounter = true;
+		}
+
+		// ── Report & notify ──────────────────────────────────────────────────
+		const anyHealed = healedOrphan || healedDeadRef || healedPosMeta || healedIdCounter;
+		if (anyHealed) {
+			const details = [
+				healedOrphan ? '清除孤立方块' : null,
+				healedDeadRef ? '修复断裂索引' : null,
+				healedPosMeta ? '修正位置元数据' : null,
+				healedIdCounter ? '修正ID计数器' : null
+			].filter(Boolean).join('、');
+			console.warn(`[2048] 状态自愈触发 (${details})`);
+			this.showToast(`⚠️ 检测到状态异常，已自动修复（${details}）`, 'warn');
+		}
+		return anyHealed;
 	}
 
 }
